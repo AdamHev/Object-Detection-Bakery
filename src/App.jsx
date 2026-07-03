@@ -1,5 +1,6 @@
 // src/App.jsx
 import DetectionForm from "./components/DetectionForm";
+import "./App.css";
 
 function App() {
   return (

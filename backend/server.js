@@ -1,26 +1,36 @@
 import express from 'express';
 import cors from 'cors';
-import bodyParser from 'body-parser';
+import multer from 'multer';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(globalThis.process?.env.PORT) || 3000;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const uploadDirectory = path.join(__dirname, 'uploads');
+
+const upload = multer({
+    storage: multer.diskStorage({
+        destination: uploadDirectory,
+        filename: (_req, _file, callback) => callback(null, 'latest.png'),
+    }),
+    limits: { fileSize: 15 * 1024 * 1024 },
+    fileFilter: (_req, file, callback) => {
+        callback(file.mimetype === 'image/png' ? null : new Error('Only PNG images are accepted.'), file.mimetype === 'image/png');
+    },
+});
 
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
+app.use('/uploads', express.static(uploadDirectory, { etag: false, maxAge: 0 }));
 
 let latestDetection = null;
-let confirmedEntries = [];
+const confirmedEntries = [];
 let clients = [];
 
-// Function to send events to all connected clients
 function sendEventToClients(data) {
-    console.log(`Sending event to ${clients.length} client(s)`);
-    clients.forEach(client => {
-        // Format as SSE message: data: <json string>\n\n
-        client.res.write(`data: ${JSON.stringify(data)}\n\n`);
-    });
+    clients.forEach(({ res }) => res.write(`data: ${JSON.stringify(data)}\n\n`));
 }
-
 
 app.get('/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
@@ -28,61 +38,65 @@ app.get('/events', (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    const clientId = Date.now();
-    const newClient = {
-        id: clientId,
-        res: res 
-    };
-    clients.push(newClient);
-    console.log(`Client connected: ${clientId} (${clients.length} total)`);
+    const client = { id: Date.now() + Math.random(), res };
+    clients.push(client);
+    if (latestDetection) res.write(`data: ${JSON.stringify(latestDetection)}\n\n`);
 
-    if (latestDetection) {
-         console.log(`Sending current detection to new client ${clientId}`);
-         res.write(`data: ${JSON.stringify(latestDetection)}\n\n`);
-    }
-
-    // Handle client disconnection
+    const heartbeat = setInterval(() => res.write(': keep-alive\n\n'), 20000);
     req.on('close', () => {
-        console.log(`Client disconnected: ${clientId}`);
-        clients = clients.filter(client => client.id !== clientId);
-        res.end();
+        clearInterval(heartbeat);
+        clients = clients.filter(({ id }) => id !== client.id);
     });
 });
 
-// Detection endpoint to receive new detection data
-app.post('/detection', (req, res) => {
-    const { timestamp, object_count, labels } = req.body;
-    if (timestamp === undefined || object_count === undefined || !Array.isArray(labels)) {
-        return res.status(400).json({ error: "Invalid detection payload format." });
+// Raspberry Pi upload: multipart/form-data with a PNG field named "image".
+app.post('/detection', upload.single('image'), (req, res) => {
+    const body = req.body ?? {};
+    let labels;
+    let confidences;
+    try {
+        labels = JSON.parse(body.labels ?? '[]');
+        confidences = JSON.parse(body.confidences ?? '[]');
+    } catch {
+        return res.status(400).json({ error: 'labels and confidences must be JSON arrays.' });
     }
-    latestDetection = { timestamp, object_count, labels };
-    console.log("Detection received:", latestDetection);
 
+    const objectCount = Number(body.object_count);
+    if (!req.file || !body.timestamp || !Number.isInteger(objectCount) || !Array.isArray(labels) || !Array.isArray(confidences)) {
+        return res.status(400).json({ error: 'A PNG image, timestamp, object_count, labels, and confidences are required.' });
+    }
+
+    latestDetection = {
+        timestamp: body.timestamp,
+        object_count: objectCount,
+        labels,
+        confidences: confidences.map(Number),
+        image_url: '/uploads/latest.png',
+        received_at: new Date().toISOString(),
+    };
     sendEventToClients(latestDetection);
-
-    res.status(200).json({ message: "Detection saved and event sent." });
+    res.status(201).json({ message: 'Detection uploaded.', detection: latestDetection });
 });
 
-// Original endpoint to get the latest detection (still useful for initial load or manual refresh)
-app.get('/detection', (req, res) => {
-    if (!latestDetection) {
-        return res.status(404).json({ error: "No detection data available yet." });
-    }
+app.get('/detection', (_req, res) => {
+    if (!latestDetection) return res.status(404).json({ error: 'No detection available yet.' });
     res.json(latestDetection);
 });
 
-// Original endpoint for confirmation
 app.post('/confirm', (req, res) => {
-    const { product, quantity, time, initials } = req.body;
+    const { product, quantity, time, initials } = req.body ?? {};
     if (!product || quantity === undefined || !time || !initials) {
-         return res.status(400).json({ error: "Missing fields in confirmation." });
+        return res.status(400).json({ error: 'Missing fields in confirmation.' });
     }
-    const entry = { product, quantity, time, initials, submittedAt: new Date().toISOString() };
-    confirmedEntries.push(entry);
-    console.log("Confirmation received:", entry);
-    res.status(200).json({ message: "Confirmation saved." });
+    confirmedEntries.push({ product, quantity, time, initials, submittedAt: new Date().toISOString() });
+    res.json({ message: 'Confirmation saved.' });
 });
 
-app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
+app.use((error, _req, res, _next) => {
+    void _next;
+    res.status(error instanceof multer.MulterError ? 400 : 415).json({ error: error.message });
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running at http://0.0.0.0:${PORT}`);
 });

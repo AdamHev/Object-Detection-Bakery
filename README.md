@@ -1,47 +1,44 @@
-Real-time detection confirmation
+# Bakery detection review
 
-This project is a simple real-time system for handling object detection results and confirming them manually.
+A Raspberry Pi runs YOLO, uploads its latest annotated PNG and detection metadata, and the React display receives the result live over server-sent events. Press **Detection** to show or hide the latest image and its confidence scores. A newer upload replaces the detection currently shown.
 
-A backend server receives detection data (for example from a Raspberry Pi running YOLO), pushes updates to connected clients, and a React frontend displays the latest detection in a form where it can be reviewed and confirmed by a human.
+## Run locally
 
-The goal is to keep the system small, understandable, and easy to extend. It could be extended, and used for logistics, and could be connected to the POS system.
+```powershell
+cd backend
+npm install
+npm start
+```
 
-How it works
+In a second terminal:
 
-A detection device sends data to the backend.
-The backend stores the latest detection in memory.
-Connected clients receive updates immediately.
-A user reviews the detection and submits a confirmation.
+```powershell
+npm install
+npm run dev -- --host
+```
 
-Tech stack
+Open the Vite URL from the display. The frontend uses that page's hostname with port `3000` for the API. To use a different API address, set `VITE_API_URL` before starting/building the frontend.
 
-Backend:
-- Node.js
-- Express
-- Server-Sent Events (SSE)
+Make sure TCP ports `3000` (backend) and `5173` (Vite development server) are allowed through the host firewall and that the Pi's `SERVER_URL` points to the backend machine's LAN IP.
 
-Frontend:
-- React
-- Axios
-- EventSource (native browser API)
+## Raspberry Pi
 
-This is just a concept.
-No database is used. All data is stored in memory.
+Install `ultralytics`, `opencv-python`, and `requests`, then run:
 
-Backend API
+```bash
+SERVER_URL=http://192.168.1.17:3000/detection python scripts/imgdetectsave.py
+```
 
-GET /events  
-Opens a Server-Sent Events connection.  
-The connection stays open and receives new detection data whenever it arrives.  
-If a detection already exists, it is sent immediately when the client connects.
+The script accepts `MODEL_PATH`, `IMAGE_PATH`, `CONF_THRESH`, `OUTPUT_DIR`, and `SERVER_URL` as environment variables.
 
-POST /detection  
-Receives detection data from the detection system.
+## Upload API
 
-Example payload:
-```json
-{
-  "timestamp": "2026-01-30T10:42:00",
-  "object_count": 3,
-  "labels": ["croissant", "bagel"]
-}
+`POST /detection` accepts `multipart/form-data`:
+
+- `image`: annotated PNG (maximum 15 MB)
+- `timestamp`: ISO 8601 timestamp
+- `object_count`: integer
+- `labels`: JSON array of label strings
+- `confidences`: JSON array of confidence numbers from 0 to 1
+
+`GET /detection` returns the latest metadata, `/uploads/<id>` serves its image, and `GET /events` sends live updates.

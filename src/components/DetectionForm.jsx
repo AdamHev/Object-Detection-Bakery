@@ -1,192 +1,116 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import axios from "axios";
+
+const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:3000`;
+
+function formatTimestamp(timestamp) {
+    const match = String(timestamp).match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
+    return match ? `${match[1]} ${match[2]}` : timestamp;
+}
 
 export default function DetectionForm() {
     const [formData, setFormData] = useState(null);
+    const [showDetection, setShowDetection] = useState(false);
     const [submitted, setSubmitted] = useState(false);
     const [error, setError] = useState(null);
 
-    // Function to process incoming detection data (from fetch or SSE)
-    const processDetectionData = (data) => {
-        if (!data || !Array.isArray(data.labels) || data.object_count === undefined || data.timestamp === undefined) {
-            console.error("Received invalid data format:", data);
-            setError("Received invalid data format from server.");
+    const processDetectionData = useCallback((data) => {
+        if (!data || !Array.isArray(data.labels) || !Array.isArray(data.confidences) || !data.image_url) {
+            setError("The server returned an invalid detection.");
             return;
         }
-
-        setFormData({
+        setFormData((previous) => ({
             product: data.labels[0] || "",
             otherLabels: data.labels.slice(1),
-            quantity: data.object_count.toString(),
-            time: data.timestamp,
-            initials: formData?.initials || "",
-        });
-        setSubmitted(false); // New data arrived, reset submitted status
+            quantity: String(data.object_count),
+            time: formatTimestamp(data.timestamp),
+            initials: previous?.initials || "",
+            confidences: data.confidences,
+            labels: data.labels,
+            imageUrl: `${API_BASE}${data.image_url}?v=${encodeURIComponent(data.received_at || Date.now())}`,
+        }));
+        setSubmitted(false);
         setError(null);
-    };
+    }, []);
 
-
-    // Fetch initial detection data on component mount
-    const fetchInitialDetection = async () => {
+    const fetchLatest = useCallback(async () => {
         try {
-            const res = await axios.get("http://localhost:3000/detection");
-            console.log("Fetched initial detection:", res.data);
-            processDetectionData(res.data);
-        } catch (err) {
-            if (err.response && err.response.status === 404) {
-                console.log("No initial detection data available yet.");
-                setError("No detection data available yet. Waiting for updates...");
-            } else {
-                console.error("Failed to fetch initial detection", err);
-                setError("Failed to load initial data. Please check server connection.");
-            }
+            processDetectionData((await axios.get(`${API_BASE}/detection`)).data);
+        } catch (requestError) {
+            setError(requestError.response?.status === 404
+                ? "No detection yet. Waiting for the Raspberry Pi…"
+                : "Cannot connect to the detection server.");
         }
-    };
+    }, [processDetectionData]);
 
-    // Effect for initial fetch and setting up SSE
     useEffect(() => {
-        // Fetch the current latest detection when the component mounts
-        fetchInitialDetection();
-
-        console.log("Setting up SSE connection...");
-        const eventSource = new EventSource("http://localhost:3000/events");
-
-        // Listener for messages from the server
-        eventSource.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                console.log("SSE received:", data);
-                processDetectionData(data);
-            } catch (parseError) {
-                console.error("Failed to parse SSE data:", event.data, parseError);
-                setError("Received malformed update from server.");
-            }
+        fetchLatest();
+        const events = new EventSource(`${API_BASE}/events`);
+        events.onmessage = ({ data }) => {
+            try { processDetectionData(JSON.parse(data)); }
+            catch { setError("The server sent a malformed update."); }
         };
+        events.onerror = () => setError("Live connection interrupted; reconnecting…");
+        return () => events.close();
+    }, [fetchLatest, processDetectionData]);
 
-        // Listener for errors on the SSE connection
-        eventSource.onerror = (err) => {
-            console.error("EventSource failed:", err);
-            setError("Connection error with server updates. Attempting to reconnect...");
-        };
-
-        return () => {
-            console.log("Closing SSE connection.");
-            eventSource.close();
-        };
-
-    }, []); // Empty dependency array ensures this runs only once on mount and cleans up on unmount
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        if (!formData) return;
-
-        const payload = {
-            product: formData.product,
-            quantity: Number(formData.quantity),
-            time: formData.time,
-            initials: formData.initials,
-        };
-
-        if (!payload.product || isNaN(payload.quantity) || !payload.time || !payload.initials) {
-             setError("Please fill in all fields correctly.");
-             return;
-        }
-
+    const handleSubmit = async (event) => {
+        event.preventDefault();
         try {
-            setError(null);
-            await axios.post("http://localhost:3000/confirm", payload);
+            await axios.post(`${API_BASE}/confirm`, {
+                product: formData.product,
+                quantity: Number(formData.quantity),
+                time: formData.time,
+                initials: formData.initials,
+            });
             setSubmitted(true);
-            // Optionally clear initials or reset form after successful submission
-            // setFormData(prev => ({ ...prev, initials: "" }));
-        } catch (err) {
-            console.error("Submission failed", err);
-            setError(err.response?.data?.error || "Submission failed. Please try again.");
-            setSubmitted(false);
+            setError(null);
+        } catch (requestError) {
+            setError(requestError.response?.data?.error || "Confirmation failed.");
         }
     };
 
-    const handleManualRefresh = () => {
-        console.log("Manual refresh requested.");
-        setError(null);
-        fetchInitialDetection();
-    };
-
+    const averageConfidence = formData?.confidences.length
+        ? formData.confidences.reduce((sum, value) => sum + value, 0) / formData.confidences.length
+        : null;
 
     return (
-        <div className="detection-form-wrapper">
-            <h2>Confirm Detection</h2>
+        <main className="detection-form-wrapper">
+            <div className="card-header">
+                <div><span className="eyebrow">Live review</span><h2>Confirm Detection</h2></div>
+                <button className="detection-btn" disabled={!formData} onClick={() => setShowDetection((visible) => !visible)}>
+                    {showDetection ? "Hide detection" : "Detection"}
+                </button>
+            </div>
 
             {error && <p className="error-msg">{error}</p>}
-            {submitted && <p className="success-msg">Form submitted successfully!</p>}
+            {submitted && <p className="success-msg">Detection confirmed.</p>}
 
-            {!formData ? (
-                <div>
-                    <p>{error || "Loading detection data..."}</p>
-                     <button className="refresh-btn" onClick={handleManualRefresh}>
-                        Try Reload
-                     </button>
-                </div>
-            ) : (
-                <form onSubmit={handleSubmit} className="detection-form">
-                    <label>Product:</label>
-                    <select
-                        value={formData.product}
-                        onChange={(e) =>
-                            setFormData({ ...formData, product: e.target.value })
-                        }
-                        required
-                    >
-                        {[formData.product, ...formData.otherLabels]
-                          .filter((label, index, self) => label && self.indexOf(label) === index) // Filter out empty/duplicates
-                          .map((label) => (
-                            <option key={label} value={label}>
-                                {label}
-                            </option>
-                        ))}
-                         { (!formData.product && formData.otherLabels.length === 0) && <option value="" disabled>No labels detected</option> }
-                    </select>
-
-                    <label>Quantity:</label>
-                    <input
-                        type="number"
-                        min="0"
-                        value={formData.quantity}
-                        onChange={(e) =>
-                            setFormData({ ...formData, quantity: e.target.value })
-                        }
-                        required
-                    />
-
-                    <label>Time:</label>
-                    <input
-                        type="text"
-                        value={formData.time}
-                         onChange={(e) =>
-                           setFormData({ ...formData, time: e.target.value })
-                         }
-                         readOnly
-                        required
-                    />
-
-                    <label>Initials:</label>
-                    <input
-                        type="text"
-                        maxLength="5"
-                        value={formData.initials}
-                        onChange={(e) =>
-                            setFormData({ ...formData, initials: e.target.value })
-                        }
-                        required
-                    />
-
-                    <div className="button-group">
-                        <button type="submit" className="confirm-btn">Confirm</button>
-                        <button type="button" className="refresh-btn" onClick={handleManualRefresh}>
-                            Reload Latest
-                        </button>
+            {showDetection && formData && (
+                <section className="detection-preview">
+                    <img src={formData.imageUrl} alt="Latest annotated bakery detection" />
+                    <div className="confidence-summary">
+                        <strong>{averageConfidence === null ? "—" : `${(averageConfidence * 100).toFixed(1)}%`}</strong>
+                        <span>Average confidence</span>
                     </div>
+                    <ul>{formData.labels.map((label, index) => <li key={`${label}-${index}`}><span>{label}</span><b>{((formData.confidences[index] || 0) * 100).toFixed(1)}%</b></li>)}</ul>
+                </section>
+            )}
+
+            {!formData ? <button className="refresh-btn" onClick={fetchLatest}>Try again</button> : (
+                <form onSubmit={handleSubmit} className="detection-form">
+                    <label>Product</label>
+                    <select value={formData.product} onChange={(event) => setFormData({ ...formData, product: event.target.value })} required>
+                        {[formData.product, ...formData.otherLabels].filter((label, index, all) => label && all.indexOf(label) === index).map((label) => <option key={label}>{label}</option>)}
+                    </select>
+                    <label>Quantity</label>
+                    <input type="number" min="0" value={formData.quantity} onChange={(event) => setFormData({ ...formData, quantity: event.target.value })} required />
+                    <label>Time</label><input value={formData.time} readOnly />
+                    <label>Initials</label>
+                    <input maxLength="5" value={formData.initials} onChange={(event) => setFormData({ ...formData, initials: event.target.value })} required />
+                    <div className="button-group"><button className="confirm-btn">Confirm</button><button type="button" className="refresh-btn" onClick={fetchLatest}>Reload latest</button></div>
                 </form>
             )}
-        </div>
+        </main>
     );
 }
