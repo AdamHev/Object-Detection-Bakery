@@ -7,6 +7,8 @@ h1 { margin: 0 0 1.5rem; color: #2c211b; }
 button { border: 0; border-radius: 9px; padding: .7rem 1rem; font: inherit; font-weight: 700; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .detection-btn { background: #43291c; color: #fff; }
+.header-actions { display: flex; gap: .6rem; }
+.database-btn { background: #a85f30; color: #fff; }
 .detection-preview { display: grid; grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr); gap: 1rem; padding: 1rem; margin-bottom: 1.25rem; border-radius: 14px; background: #f3ebe2; }
 .detection-preview img { grid-row: span 2; display: block; width: 100%; border-radius: 10px; background: #1d1714; }
 .confidence-summary { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; border-radius: 10px; background: #fff; }
@@ -16,16 +18,43 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .detection-preview li { display: flex; justify-content: space-between; gap: 1rem; padding: .4rem .2rem; border-bottom: 1px solid #ddcfc1; }
 .detection-form { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: .8rem 1rem; }
 .detection-form label { color: #59483d; font-weight: 700; }
-.detection-form input, .detection-form select { box-sizing: border-box; width: 100%; padding: .7rem; border: 1px solid #d7c7b8; border-radius: 8px; background: #fff; color: #2c211b; font: inherit; }
+.detection-form input, .detection-form select, .detection-form textarea { box-sizing: border-box; width: 100%; padding: .7rem; border: 1px solid #d7c7b8; border-radius: 8px; background: #fff; color: #2c211b; font: inherit; }
+.detection-form textarea { min-height: 72px; resize: vertical; }
+.confidence-summary small { margin-top: .6rem; color: #75665d; }
 .button-group { grid-column: 2; display: flex; gap: .75rem; margin-top: .5rem; }
 .confirm-btn { flex: 1; background: #4b7a46; color: #fff; }
 .refresh-btn { flex: 1; background: #e8ddd2; color: #43291c; }
 .error-msg, .success-msg { padding: .75rem 1rem; border-radius: 8px; }
 .error-msg { color: #872e2e; background: #fdeaea; }
 .success-msg { color: #285c2d; background: #e8f5e9; }
+.database-stats { display: grid; gap: 1rem; }
+.stats-loading { padding: 2rem; color: #75665d; text-align: center; }
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }
+.stat-grid article { display: flex; flex-direction: column; padding: 1rem; border: 1px solid #eaded2; border-radius: 12px; background: #fff; }
+.stat-grid strong { color: #a64f1f; font-size: 1.65rem; }
+.stat-grid span { color: #75665d; font-size: .8rem; }
+.stats-columns { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(0, 1.2fr); gap: 1rem; }
+.stats-card { min-width: 0; padding: 1rem; border-radius: 12px; background: #f3ebe2; }
+.stats-card h3 { margin: 0 0 .9rem; color: #43291c; }
+.stats-card p { color: #75665d; }
+.correction-row { margin: .7rem 0; }
+.correction-row > div:first-child { display: flex; justify-content: space-between; text-transform: capitalize; }
+.bar-track { height: 7px; margin-top: .3rem; overflow: hidden; border-radius: 10px; background: #dfd0c2; }
+.bar-track i { display: block; height: 100%; border-radius: inherit; background: #a85f30; }
+.table-scroll { overflow-x: auto; }
+.stats-card table { width: 100%; border-collapse: collapse; font-size: .86rem; text-align: left; }
+.stats-card th { color: #75665d; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; }
+.stats-card th, .stats-card td { padding: .55rem .5rem; border-bottom: 1px solid #ddcfc1; white-space: nowrap; }
+.outcome { display: inline-block; padding: .2rem .45rem; border-radius: 20px; background: #eadccf; text-transform: capitalize; }
+.outcome-correct { color: #285c2d; background: #dcefdc; }
+.outcome-missing, .outcome-duplicate, .outcome-wrong_class, .outcome-mixed { color: #872e2e; background: #f5dada; }
 @media (max-width: 650px) {
+  .card-header { align-items: flex-start; }
+  .header-actions { flex-direction: column-reverse; }
   .detection-preview { grid-template-columns: 1fr; }
   .detection-preview img { grid-row: auto; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .stats-columns { grid-template-columns: 1fr; }
   .detection-form { grid-template-columns: 1fr; gap: .4rem; }
   .button-group { grid-column: 1; }
 }
