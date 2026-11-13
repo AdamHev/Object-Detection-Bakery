@@ -6,7 +6,6 @@ import cv2
 import requests
 from ultralytics import YOLO
 
-# Override these on the Pi with environment variables when needed.
 MODEL_PATH = os.getenv("MODEL_PATH", "best.pt")
 IMAGE_PATH = os.getenv("IMAGE_PATH", "captured2.png")
 CONF_THRESH = float(os.getenv("CONF_THRESH", "0.4"))
